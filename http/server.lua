@@ -175,8 +175,8 @@ local function post_param(self, name)
     local content_type = self:content_type()
 
     if content_type == 'multipart/form-data' then
-        -- TODO: do that!
-        rawset(self, 'post_params', {})
+        local params = self:multipart()
+        rawset(self, 'post_params', params)
     elseif content_type == 'application/json' then
         local params = self:json()
         rawset(self, 'post_params', params)
@@ -525,6 +525,48 @@ local function request_json(req)
     return result
 end
 
+local function request_multipart(self)
+    local body = self:read_cached()
+    local sep = "--" .. self.req.headers['content-type']:match("boundary=(.+)"):gsub(";", "")
+
+    local t = {}
+
+    local str_params = body:split(sep)
+
+    fun.each(
+        function(p)
+            local param_part = p:match("%aontent%-%aisposition: .-; (.-)\r\n")
+
+            if not param_part then
+                return
+            end
+            param_part = param_part:gsub(";", "")
+
+            local ct = {}
+
+            for key, val in param_part:gmatch("(.-)=\"(.-)\"") do
+                rawset(ct, key:strip(), val:strip())
+            end
+
+            local value = p:match("\r\n\r\n(.*)\r\n$")
+
+            local mime
+            if ct.filename then
+                mime = p:match("%aontent%-%aype: (.-)\r\n")
+            end
+
+            rawset(
+                t,
+                ct.name,
+                ct.filename and { data = value, headers = ct, mime = mime } or value
+            )
+        end,
+        str_params
+    )
+
+    return t
+end
+
 local function request_read(ctx, opts, timeout)
     local remaining = ctx.req._remaining
 
@@ -634,6 +676,7 @@ request_mt = {
         param       = param,
         read        = request_read,
         json        = request_json,
+        multipart   = request_multipart,
         setcookie   = setcookie;
     },
     __tostring = request_tostring;
