@@ -22,19 +22,17 @@ local function errorf(fmt, ...)
 end
 
 local function uri_escape(str)
-    local res = {}
     if type(str) == 'table' then
-        fun.each(
-            function(v)
-                table.insert(res, uri_escape(v))
-            end,
-            str
-        )
+        local res = fun.iter(str):map(
+            function(val)
+                return uri_escape(val)
+            end
+        ):totable()
 
         return res
     end
 
-    res = str:gsub(
+    local res = str:gsub(
         '[^a-zA-Z0-9_]',
         function(c)
             return sprintf('%%%02X', string.byte(c))
@@ -45,28 +43,26 @@ local function uri_escape(str)
 end
 
 local function uri_unescape(str, unescape_plus_sign)
-    local res = {}
-
     if type(str) == 'table' then
-        fun.each(
-            function(v)
-                table.insert(res, uri_unescape(v, unescape_plus_sign))
-            end,
-            str
-        )
+        local res = fun.iter(str):map(
+            function(val)
+                return uri_unescape(val, unescape_plus_sign)
+            end
+        ):totable()
 
         return res
     end
+
     if unescape_plus_sign then
         str = str:gsub('+', ' ')
     end
 
-    res = str:gsub(
-            '%%([0-9a-fA-F][0-9a-fA-F])',
-            function(c)
-                return string.char(tonumber(c, 16))
-            end
-        )
+    local res = str:gsub(
+        '%%([0-9a-fA-F][0-9a-fA-F])',
+        function(c)
+            return string.char(tonumber(c, 16))
+        end
+    )
 
     return res
 end
@@ -141,14 +137,13 @@ local function query_param(self, name)
         rawset(self, 'query_params', {})
     else
         local params = lib.params(self.req.query)
-        local pres = {}
 
-        fun.each(
+        local pres = fun.iter(params):map(
             function(k, v)
-                rawset(pres, uri_unescape(k), uri_unescape(v, true))
-            end,
-            params
-        )
+                return uri_unescape(k), uri_unescape(v, true)
+            end
+        ):tomap()
+
         rawset(self, 'query_params', pres)
     end
 
@@ -182,17 +177,15 @@ local function post_param(self, name)
         rawset(self, 'post_params', params)
     else
         local params = lib.params(self:read_cached())
-        local pres = {}
 
         -- escape plus signs if x-www-form-urlencoded and do not otherwise
         local escape = (content_type == 'application/x-www-form-urlencoded')
 
-        fun.each(
+        local pres = fun.iter(params):map(
             function(k, v)
-                rawset(pres, uri_unescape(k), uri_unescape(v, escape))
-            end,
-            params
-        )
+                return uri_unescape(k), uri_unescape(v, escape)
+            end
+        ):tomap()
 
         rawset(self, 'post_params', pres)
     end
@@ -396,10 +389,10 @@ local function render(tx, opts)
             resp.headers['content-type'] = 'text/plain'
             if tx.httpd.options.charset then
                 resp.headers['content-type'] =
-                    sprintf("%s; charset=%s",
-                        resp.headers['content-type'],
-                        tx.httpd.options.charset
-                    )
+                sprintf("%s; charset=%s",
+                    resp.headers['content-type'],
+                    tx.httpd.options.charset
+                )
             end
 
             resp.body = tostring(opts.text)
@@ -412,10 +405,10 @@ local function render(tx, opts)
             resp.headers['content-type'] = 'application/json'
             if tx.httpd.options.charset then
                 resp.headers['content-type'] =
-                    sprintf('%s; charset=%s',
-                        resp.headers['content-type'],
-                        tx.httpd.options.charset
-                    )
+                sprintf('%s; charset=%s',
+                    resp.headers['content-type'],
+                    tx.httpd.options.charset
+                )
             end
 
             resp.body = json.encode(opts.json)
@@ -529,16 +522,14 @@ local function request_multipart(self)
     local body = self:read_cached()
     local sep = "--" .. self.req.headers['content-type']:match("boundary=(.+)"):gsub(";", "")
 
-    local t = {}
-
     local str_params = body:split(sep)
 
-    fun.each(
+    local t = fun.iter(str_params):map(
         function(p)
             local param_part = p:match("%aontent%-%aisposition: .-; (.-)\r\n")
 
             if not param_part then
-                return
+                return p, nil
             end
             param_part = param_part:gsub(";", "")
 
@@ -554,15 +545,9 @@ local function request_multipart(self)
             if ct.filename then
                 mime = p:match("%aontent%-%aype: (.-)\r\n")
             end
-
-            rawset(
-                t,
-                ct.name,
-                ct.filename and { data = value, headers = ct, mime = mime } or value
-            )
-        end,
-        str_params
-    )
+            return ct.name, ct.filename and { data = value, headers = ct, mime = mime } or value
+        end
+    ):tomap()
 
     return t
 end
@@ -770,16 +755,11 @@ local function handler(self, ctx)
 end
 
 local function normalize_headers(hdrs)
-    local res = {}
-
-    fun.each(
+    return fun.iter(hdrs):map(
         function(h, v)
-            rawset(res, h:lower(), v)
-        end,
-        hdrs
-    )
-
-    return res
+            return h:lower(), v
+        end
+    ):tomap()
 end
 
 local function parse_request(req)
@@ -846,7 +826,7 @@ local function process_client(self, s, peer)
         local route = self:match(p.req.method, p.req.path)
         local logreq = get_request_logger(self.options, route)
         logreq("%s %s%s", p.req.method, p.req.path,
-               p.req.query ~= "" and "?"..p.req.query or "")
+            p.req.query ~= "" and "?"..p.req.query or "")
 
         local res, reason = pcall(self.options.handler, self, p)
         p:read() -- skip remaining bytes of request body
@@ -860,15 +840,15 @@ local function process_client(self, s, peer)
             logerror('unhandled error: %s\n%s\nrequest:\n%s',
                 tostring(reason), trace, tostring(p))
             if self.options.display_errors then
-            body =
-                  "Unhandled error: " .. tostring(reason) .. "\n"
-                .. trace .. "\n\n"
-                .. "\n\nRequest:\n"
-                .. tostring(p)
+                body =
+                "Unhandled error: " .. tostring(reason) .. "\n"
+                    .. trace .. "\n\n"
+                    .. "\n\nRequest:\n"
+                    .. tostring(p)
             else
                 body = "Internal Error"
             end
-       elseif type(reason) == 'table' then
+        elseif type(reason) == 'table' then
             if reason.status == nil then
                 status = 200
             elseif type(reason.status) == 'number' then
@@ -1009,8 +989,8 @@ local function process_client(self, s, peer)
 end
 
 local function httpd_stop(self)
-   if type(self) ~= 'table' then
-       error("httpd: usage: httpd:stop()")
+    if type(self) ~= 'table' then
+        error("httpd: usage: httpd:stop()")
     end
     if self.is_run then
         self.is_run = false
@@ -1037,49 +1017,53 @@ local function match_route(self, method, route)
     method = string.upper(method)
 
     local fit
+    local found = false
     local stash = {}
 
-    fun.each(
-        function(r)
-            if r.method == method or r.method == 'ANY' then
-                local m = { string.match(route, r.match) }
-                local nfit
+    for _, r in pairs(self.routes) do
+        if r.method == method or r.method == 'ANY' then
+            local m = { string.match(route, r.match)  }
 
-                if #m > 0 then
-                    if #r.stash > 0 then
-                        if #r.stash == #m then
-                            nfit = r
+            local nfit
+            if #m > 0 then
+                if #r.stash > 0 then
+                    if #r.stash == #m then
+                        nfit = r
+                        found = true
+                    end
+                else
+                    nfit = r
+                end
+
+                if nfit ~= nil then
+                    if fit == nil then
+                        fit = nfit
+                        stash = m
+                        if found then
+                            break
                         end
                     else
-                        nfit = r
-                    end
-
-                    if nfit ~= nil then
-                        if fit == nil then
+                        if #fit.stash > #nfit.stash then
                             fit = nfit
                             stash = m
-                        else
-                            if #fit.stash > #nfit.stash then
+                        elseif r.method ~= fit.method then
+                            if fit.method == 'ANY' then
                                 fit = nfit
                                 stash = m
-                            elseif r.method ~= fit.method then
-                                if fit.method == 'ANY' then
-                                    fit = nfit
-                                    stash = m
-                                end
                             end
                         end
                     end
                 end
             end
-        end,
-        self.routes
-    )
+        end
+    end
 
     if fit == nil then
         return fit
     end
     local resstash = {}
+
+
     fun.each(
         function(i)
             rawset(resstash, fit.stash[i], stash[i])
@@ -1125,10 +1109,10 @@ local function url_for_route(r, args, query)
         if type(query) == 'table' then
             local sep = '?'
             fun.each(
-               function(k, v)
-                   name = sprintf("%s%s%s=%s", name, sep, uri_escape(k), uri_escape(v))
-                   sep  = '&'
-               end,
+                function(k, v)
+                    name = sprintf("%s%s%s=%s", name, sep, uri_escape(k), uri_escape(v))
+                    sep  = '&'
+                end,
                 query
             )
         else
@@ -1158,9 +1142,9 @@ local function ctx_action(tx)
 
     local ppath = package.path
     package.path = catfile(tx.httpd.options.app_dir, 'controllers', '?.lua')
-                .. ';'
-                .. catfile(tx.httpd.options.app_dir,
-                    'controllers', '?/init.lua')
+        .. ';'
+        .. catfile(tx.httpd.options.app_dir,
+        'controllers', '?/init.lua')
     if ppath ~= nil then
         package.path = package.path .. ';' .. ppath
     end
@@ -1335,8 +1319,8 @@ local function httpd_start(self)
         {
             name = 'http',
             handler = function(...)
-                          local _ = process_client(self, ...)
-                      end
+                local _ = process_client(self, ...)
+            end
         }
     )
     if server == nil then
