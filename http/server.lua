@@ -23,10 +23,11 @@ end
 
 local function uri_escape(str)
     if type(str) == 'table' then
-        local res = fun.iter(str):map(
+        local res = fun.map(
             function(val)
                 return uri_escape(val)
-            end
+            end,
+            str
         ):totable()
 
         return res
@@ -44,10 +45,11 @@ end
 
 local function uri_unescape(str, unescape_plus_sign)
     if type(str) == 'table' then
-        local res = fun.iter(str):map(
+        local res = fun.map(
             function(val)
                 return uri_unescape(val, unescape_plus_sign)
-            end
+            end,
+            str
         ):totable()
 
         return res
@@ -138,13 +140,12 @@ local function query_param(self, name)
     else
         local params = lib.params(self.req.query)
 
-        local pres = fun.iter(params):map(
+        self.query_params = fun.map(
             function(k, v)
                 return uri_unescape(k), uri_unescape(v, true)
-            end
+            end,
+            params
         ):tomap()
-
-        rawset(self, 'query_params', pres)
     end
 
     rawset(self, 'query_param', cached_query_param)
@@ -181,13 +182,12 @@ local function post_param(self, name)
         -- escape plus signs if x-www-form-urlencoded and do not otherwise
         local escape = (content_type == 'application/x-www-form-urlencoded')
 
-        local pres = fun.iter(params):map(
+        self.post_params = fun.map(
             function(k, v)
                 return uri_unescape(k), uri_unescape(v, escape)
-            end
+            end,
+            params
         ):tomap()
-
-        rawset(self, 'post_params', pres)
     end
 
     rawset(self, 'post_param', cached_post_param)
@@ -372,12 +372,7 @@ local function render(tx, opts)
         -- so you may set or add headers and status right through resp:render()
         if opts.headers then
             if next(resp.headers) then
-                fun.each(
-                    function(n, val)
-                        rawset(resp.headers, n, val)
-                    end,
-                    opts.headers
-                )
+                resp.headers = extend(resp.headers, opts.headers, false)
             else
                 resp.headers = opts.headers
             end
@@ -388,8 +383,8 @@ local function render(tx, opts)
         if opts.text then
             resp.headers['content-type'] = 'text/plain'
             if tx.httpd.options.charset then
-                resp.headers['content-type'] =
-                sprintf("%s; charset=%s",
+                resp.headers['content-type'] = sprintf(
+                    "%s; charset=%s",
                     resp.headers['content-type'],
                     tx.httpd.options.charset
                 )
@@ -404,8 +399,8 @@ local function render(tx, opts)
         if opts.json then
             resp.headers['content-type'] = 'application/json'
             if tx.httpd.options.charset then
-                resp.headers['content-type'] =
-                sprintf('%s; charset=%s',
+                resp.headers['content-type'] = sprintf(
+                    '%s; charset=%s',
                     resp.headers['content-type'],
                     tx.httpd.options.charset
                 )
@@ -755,10 +750,11 @@ local function handler(self, ctx)
 end
 
 local function normalize_headers(hdrs)
-    return fun.iter(hdrs):map(
+    return fun.map(
         function(h, v)
             return h:lower(), v
-        end
+        end,
+        hdrs
     ):tomap()
 end
 
@@ -777,7 +773,7 @@ end
 
 local function process_client(self, s, peer)
     while true do
-        local hdrs = ''
+        local hdr = ''
 
         local is_eof = false
         while true do
@@ -793,9 +789,9 @@ local function process_client(self, s, peer)
                 return
             end
 
-            hdrs = hdrs .. chunk
+            hdr = hdr .. chunk
 
-            if hdrs:endswith("\n\n") or hdrs:endswith("\r\n\r\n") then
+            if hdr:endswith("\n\n") or hdr:endswith("\r\n\r\n") then
                 break
             end
         end
@@ -804,9 +800,9 @@ local function process_client(self, s, peer)
             break
         end
 
-        log.debug("request:\n%s", hdrs)
+        log.debug("request:\n%s", hdr)
 
-        local req = parse_request(hdrs)
+        local req = parse_request(hdr)
         local p = {req = req}
 
         if p.error ~= nil then
@@ -1021,7 +1017,8 @@ local function match_route(self, method, route)
     local stash = {}
 
     for _, r in pairs(self.routes) do
-        if r.method == method or r.method == 'ANY' then
+        -- returns true if any method in table matches the given one
+        if fun.any(function(val) return val == method end, r.method) then
             local m = { string.match(route, r.match)  }
 
             local nfit
@@ -1046,11 +1043,6 @@ local function match_route(self, method, route)
                         if #fit.stash > #nfit.stash then
                             fit = nfit
                             stash = m
-                        elseif r.method ~= fit.method then
-                            if fit.method == 'ANY' then
-                                fit = nfit
-                                stash = m
-                            end
                         end
                     end
                 end
@@ -1061,17 +1053,8 @@ local function match_route(self, method, route)
     if fit == nil then
         return fit
     end
-    local resstash = {}
 
-
-    fun.each(
-        function(i)
-            rawset(resstash, fit.stash[i], stash[i])
-        end,
-        fun.range(#fit.stash)
-    )
-
-    return  { endpoint = fit, stash = resstash }
+    return  { endpoint = fit, stash = fun.zip(fit.stash, stash):tomap() }
 end
 
 local function set_helper(self, name, sub)
@@ -1173,20 +1156,19 @@ local function ctx_action(tx)
 end
 
 local possible_methods = {
-    GET    = 'GET',
-    HEAD   = 'HEAD',
-    POST   = 'POST',
-    PUT    = 'PUT',
-    DELETE = 'DELETE',
-    PATCH  = 'PATCH',
+    GET     = 'GET',
+    HEAD    = 'HEAD',
+    POST    = 'POST',
+    PUT     = 'PUT',
+    DELETE  = 'DELETE',
+    PATCH   = 'PATCH',
+    OPTIONS = "OPTIONS"
 }
 
 local function add_route(self, opts, sub)
     if type(opts) ~= 'table' or type(self) ~= 'table' then
         error("Usage: httpd:route({ ... }, function(cx) ... end)")
     end
-
-    opts = extend({method = 'ANY'}, opts, false)
 
     local ctx
     local action
@@ -1208,7 +1190,19 @@ local function add_route(self, opts, sub)
             type(sub))
     end
 
-    opts.method = possible_methods[string.upper(opts.method)] or 'ANY'
+    if type(opts.method) == "table" and next(opts.method)then
+        -- exclude unsupported methods
+        opts.method = fun.map(
+            function(val) return possible_methods[val:upper()] end,
+            opts.method
+        ):totable()
+    elseif type(opts.method) == "string" then
+        local possible = possible_methods[opts.method:upper()]
+        -- sets default value if method was not found in the table
+        opts.method = possible and {possible} or fun.iter(possible_methods):totable()
+    else
+        opts.method = fun.iter(possible_methods):totable()
+    end
 
     if opts.path == nil then
         error("path is not defined")

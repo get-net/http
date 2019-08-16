@@ -147,6 +147,7 @@ httpd:route({ path = '/path/to' }, 'controller#action')
 httpd:route({ path = '/', template = 'Hello <%= var %>' }, handle1)
 httpd:route({ path = '/:abc/cde', file = 'users.html.el' }, handle2)
 httpd:route({ path = '/objects', method = 'GET' }, handle3)
+httpd:route({ path = '/users', method = {"PUT", "POST", "DELETE"}}, handle4)
 ```
 
 The first argument for `route()` is a Lua table with one or more keys:
@@ -161,7 +162,7 @@ The first argument for `route()` is a Lua table with one or more keys:
   taken from a database.
 * `path` - route path, as described earlier.
 * `name` - route name.
-* `method` - method on the route like `POST`, `GET`, `PUT`, `DELETE`
+* `method` - method on the route like `POST`, `GET`, `PUT`, `DELETE`, also may be a table of those.
 * `log_requests` - option that overrides the server parameter of the same name but only for current route.
 * `log_errors` - option that overrides the server parameter of the same name but only for current route.
 
