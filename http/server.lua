@@ -515,34 +515,39 @@ end
 
 local function request_multipart(self)
     local body = self:read_cached()
-    local sep = "--" .. self.req.headers['content-type']:match("boundary=(.+)"):gsub(";", "")
+    local sep = "--"..self.req.headers['content-type']:match("boundary=(.+)"):gsub("-", "%%-")
+    local s, e = body:find(sep.."\r\n")
+    local eor = false
 
-    local str_params = body:split(sep)
+    local t = {}
 
-    local t = fun.iter(str_params):map(
-        function(p)
-            local param_part = p:match("%aontent%-%aisposition: .-; (.-)\r\n")
-
-            if not param_part then
-                return p, nil
-            end
-            param_part = param_part:gsub(";", "")
-
-            local ct = {}
-
-            for key, val in param_part:gmatch("(.-)=\"(.-)\"") do
-                rawset(ct, key:strip(), val:strip())
-            end
-
-            local value = p:match("\r\n\r\n(.*)\r\n$")
-
-            local mime
-            if ct.filename then
-                mime = p:match("%aontent%-%aype: (.-)\r\n")
-            end
-            return ct.name, ct.filename and { data = value, headers = ct, mime = mime } or value
+    while not eor do
+        local _s, _e = body:find(sep, e)
+        if body:endswith("--", _e, _e + 2) then
+            eor = true
         end
-    ):tomap()
+
+        local param_part = body:match("%aontent%-%aisposition:.-; (.-)\r\n\r\n", e - 1)
+        param_part = param_part:gsub(";", "")
+
+        local mime_type = body:match("%aontent%-%aype: (.-)\r\n", e - 1)
+
+        local content = {}
+
+        for key, val in param_part:gmatch("(.-)=\"(.-)\"") do
+            rawset(content, key:strip(), val:strip())
+        end
+
+        local value = body:sub(e, _s - 1):match("\r\n\r\n(.-)\r\n$")
+
+        rawset(
+            t,
+            content.name,
+            content.filename and {data = value, headers = content, mime = mime_type} or value
+        )
+
+        s, e = _s, _e + 2
+    end
 
     return t
 end
