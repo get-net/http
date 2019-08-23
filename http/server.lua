@@ -70,19 +70,17 @@ local function uri_unescape(str, unescape_plus_sign)
 end
 
 local function extend(tbl, tblu, raise)
-    local res = table.deepcopy(tbl)
-
-    fun.each(
-        function(k, v)
+    return fun.reduce(
+        function(res, k, v)
             if raise and res[k] == nil then
                 errorf("Unknown option %q", k)
             end
             rawset(res, k, v)
+            return res
         end,
+        tbl,
         tblu
     )
-
-    return res
 end
 
 local function type_by_format(fmt)
@@ -106,16 +104,18 @@ local function cached_post_param(self, name)
 end
 
 local function request_tostring(self)
-    local res = self:request_line() .. "\r\n"
-
-    fun.each(
-        function(hn, hv)
-            res = sprintf("%s%s: %s\r\n", res, ucfirst(hn), hv)
-        end,
-        self.req.headers
+    return sprintf(
+        "%s\r\n%s",
+        fun.reduce(
+            function(res, hn, hv)
+                res = sprintf("%s%s: %s\r\n", res, ucfirst(hn), hv)
+                return res
+            end,
+            self:request_line() .. "\r\n",
+            self.req.headers
+        ),
+        self.req.body
     )
-
-    return sprintf("%s\r\n%s", res, self.req.body)
 end
 
 local function request_line(self)
@@ -138,13 +138,11 @@ local function query_param(self, name)
     if self.req.query == nil or #self.req.query == 0 then
         rawset(self, 'query_params', {})
     else
-        local params = lib.params(self.req.query)
-
         self.query_params = fun.map(
             function(k, v)
                 return uri_unescape(k), uri_unescape(v, true)
             end,
-            params
+            lib.params(self.req.query)
         ):tomap()
     end
 
@@ -439,10 +437,12 @@ local function render(tx, opts)
         tpl = tpl()
     end
 
-    fun.each(
-        function(hname, sub)
-            rawset(vars, hname, function(...) return sub(tx, ...) end)
+    vars = fun.reduce(
+        function(_res, hname, sub)
+            rawset(_res, hname, function(...) return sub(tx, ...) end)
+            return _res
         end,
+        vars,
         tx.httpd.helpers
     )
 
@@ -876,7 +876,7 @@ local function process_client(self, s, peer)
             error('invalid response')
         end
 
-        local gen, param, state
+        local gen, par, state
         if type(body) == 'string' then
             -- Plain string
             hdrs['content-length'] = #body
@@ -886,7 +886,7 @@ local function process_client(self, s, peer)
             hdrs['transfer-encoding'] = 'chunked'
         elseif type(body) == 'table' and body.gen then
             -- Iterator
-            gen, param, state = body.gen, body.param, body.state
+            gen, par, state = body.gen, body.param, body.state
             hdrs['transfer-encoding'] = 'chunked'
         elseif body == nil then
             -- Empty body
@@ -932,19 +932,26 @@ local function process_client(self, s, peer)
             "\r\n";
         };
 
-        fun.each(
-            function(k, v)
+        response = fun.reduce(
+            function(_res, k, v)
                 if type(v) == 'table' then
-                    fun.each(
-                        function(sv)
-                            table.insert(response, sprintf("%s: %s\r\n", ucfirst(k), sv))
-                        end,
-                        v
-                    )
-                else
-                    table.insert(response, sprintf("%s: %s\r\n", ucfirst(k), v))
+                    _res = fun.chain(
+                        _res,
+                        fun.map(
+                            function(sv)
+                                return sprintf("%s: %s\r\n", ucfirst(k), sv)
+                            end,
+                            v
+                        ):totable()
+                    ):totable()
+
+                    return _res
                 end
+
+                table.insert(_res, sprintf("%s: %s\r\n", ucfirst(k), v))
+                return _res
             end,
+            response,
             hdrs
         )
 
@@ -963,7 +970,7 @@ local function process_client(self, s, peer)
             end
             response = nil
             -- Transfer-Encoding: chunked
-            for _, part in gen, param, state do
+            for _, part in gen, par, state do
                 part = tostring(part)
                 if not s:write(sprintf("%x\r\n%s\r\n", #part, part)) then
                     break
@@ -1083,24 +1090,24 @@ end
 local function url_for_route(r, args, query)
     args = args or {}
 
-    local name = r.path
-
-    fun.each(
-        function(sn)
-            local sv = args[sn] or ''
-            name = string.gsub(name, '[*:]' .. sn, sv, 1)
+    local name = fun.reduce(
+        function(_name, sn)
+            return string.gsub(_name, '[*:]' .. sn, args[sn] or '', 1)
         end,
+        r.path,
         r.stash
     )
 
     if query ~= nil then
         if type(query) == 'table' then
             local sep = '?'
-            fun.each(
-                function(k, v)
-                    name = sprintf("%s%s%s=%s", name, sep, uri_escape(k), uri_escape(v))
-                    sep  = '&'
+            name = fun.reduce(
+                function(_name, k, v)
+                    _name = sprintf("%s%s%s=%s", _name, sep, uri_escape(k), uri_escape(v))
+                    sep = "&"
+                    return _name
                 end,
+                name,
                 query
             )
         else
