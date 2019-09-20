@@ -769,6 +769,7 @@ local function parse_request(req)
         return p
     end
     p.path = uri_unescape(p.path)
+    p.path = p.path:gsub("(/+)", "/")
     if not p.path:startswith("/") or p.path:find("./", nil, true) then
         p.error = "invalid uri"
         return p
