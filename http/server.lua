@@ -96,11 +96,11 @@ local function ucfirst(str)
 end
 
 local function cached_query_param(self, name)
-    return self.query_params[name] or self.query_params
+    return not name and self.query_params or self.query_params[name]
 end
 
 local function cached_post_param(self, name)
-    return self.post_params[name] or self.post_params
+    return not name and self.post_params or self.post_params[name]
 end
 
 local function request_tostring(self)
