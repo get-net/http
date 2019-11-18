@@ -580,7 +580,7 @@ local httpd = openapi(server, 'api.yaml', {
 httpd:start()
 ```
 As you can see, openapi call takes three positional arguments, which are:
-server instance, path to read specification file from and also a table with
+server instance, path to read specification from and also a table with
 options(only takes security for now).
 
 
@@ -604,15 +604,13 @@ return _M
 
 Operation object from spec file should look something like this:
 ```yaml
-tags:
-- example
-operationId: 'userinfo'
-parameters:
-  - in: query
-  name: id
-  required: true
-  schema:
-    type: string
+/example:
+  get:
+    tags:
+    - example
+    operationId: 'userinfo'
+    summary: 'Example request'
+    # ...
 ```
 So, the module will map `GET /example` request to be handled by `userinfo` function in `controllers.example` module.
 All the modules must be stored within the `controllers` directory, because the module exploits tarantool-http's ability
@@ -620,7 +618,7 @@ to map handlers with a `controller#action` string. Place your controller modules
 to your `app_dir` option.
 
 The controller module may also return a function instead of a table, in that case just make sure your `example.lua` module
-returns the handler itself and drop the operationId from operation object schema.
+returns the function and drop the operationId from operation object schema.
 
 Note that the module maps only the first tag of the list, every other tag would be ignored.
 
@@ -673,7 +671,7 @@ decoded from base64 and also splits by ":" symbol to form username and password.
 The `url` argument is the current request's path, taken from `request_object.req.path`.
 The scopes are sent from the security option in the operation object schema:
 ```yaml
-post:
+get:
   tags:
   - example
   operationId: 'userinfo'
