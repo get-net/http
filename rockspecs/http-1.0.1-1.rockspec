@@ -28,9 +28,11 @@ build = {
                 "$(TARANTOOL_INCDIR)"
             }
         },
-        ['http.server'] = 'http/server.lua',
+        ['http.server']     = 'http/server.lua',
+        ['http.openapi']    = 'http/openapi.lua',
+        ['http.cors']       = 'http/cors.lua',
         ['http.mime_types'] = 'http/mime_types.lua',
-        ['http.codes'] = 'http/codes.lua',
+        ['http.codes']      = 'http/codes.lua',
     }
 }
 

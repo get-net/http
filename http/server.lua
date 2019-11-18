@@ -1128,11 +1128,19 @@ local function ctx_action(tx)
     local action = tx.endpoint.action
     if tx.httpd.options.cache_controllers then
         if tx.httpd.cache[ ctx ] ~= nil then
-            if type(tx.httpd.cache[ ctx ][ action ]) ~= 'function' then
-                errorf("Controller %q doesn't contain function %q",
-                    ctx, action)
+            if action then
+                if type(tx.httpd.cache[ ctx ][ action ]) ~= 'function' then
+                    errorf("Controller %q doesn't contain function %q",
+                        ctx, action)
+                end
+                return tx.httpd.cache[ ctx ][ action ](tx)
+            else
+                if type(tx.httpd.cache[ ctx ]) ~= 'function' then
+                    errorf("Controller %q is not a function",
+                        ctx, action)
+                end
+                return tx.httpd.cache[ ctx ](tx)
             end
-            return tx.httpd.cache[ ctx ][ action ](tx)
         end
     end
 
@@ -1153,19 +1161,29 @@ local function ctx_action(tx)
         errorf("Can't load module %q: %s", ctx, tostring(mod))
     end
 
-    if type(mod) ~= 'table' then
-        errorf("require %q didn't return table", ctx)
-    end
+    if action then
+        if type(mod) ~= 'table' then
+            errorf("require %q didn't return table", ctx)
+        end
 
-    if type(mod[ action ]) ~= 'function' then
-        errorf("Controller %q doesn't contain function %q", ctx, action)
+        if type(mod[ action ]) ~= 'function' then
+            errorf("Controller %q doesn't contain function %q", ctx, action)
+        end
+    else
+        if type(mod) ~= 'function' then
+            errorf("Controller %q is not a function", ctx)
+        end
     end
 
     if tx.httpd.options.cache_controllers then
         tx.httpd.cache[ ctx ] = mod
     end
 
-    return mod[action](tx)
+    if action then
+        return mod[action](tx)
+    end
+
+    return mod(tx)
 end
 
 local possible_methods = {
@@ -1189,15 +1207,9 @@ local function add_route(self, opts, sub)
     if sub == nil then
         sub = render
     elseif type(sub) == 'string' then
-
-        ctx, action = string.match(sub, '(.+)#(.*)')
-
-        if ctx == nil or action == nil then
-            errorf("Wrong controller format %q, must be 'module#action'", sub)
-        end
-
+        local tab = sub:split("#")
+        ctx, action = tab[1], tab[2]
         sub = ctx_action
-
     elseif type(sub) ~= 'function' then
         errorf("wrong argument: expected function, but received %s",
             type(sub))
