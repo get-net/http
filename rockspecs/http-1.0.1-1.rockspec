@@ -2,8 +2,8 @@ package = 'http'
 version = '1.0.1-1'
 source  = {
     url    = 'git://github.com/get-net/http.git',
-    branch = 'development',
-    tag    = 'development'
+    branch = 'openapi-support',
+    tag    = 'openapi-support'
 }
 description = {
     summary  = "HTTP server for Tarantool",
