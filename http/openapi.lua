@@ -565,6 +565,10 @@ function _V.validate_query(ctx, spec, res)
                 value = stash[param.name]
             end
 
+            if value == nil and not param.required then
+                return _res
+            end
+
             if not value then
                 _res[param.name] = _V.p_error("missing")
                 return _res
