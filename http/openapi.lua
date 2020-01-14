@@ -380,7 +380,7 @@ function _U.handler(self, ctx)
 
     local status, err = pcall(r.endpoint.sub, ctx)
 
-    if not status and err then
+    if not status then
         local tag, op_id
         for _, val in next, _U.ni_patterns do
             tag, op_id = err:match(val)
@@ -390,7 +390,12 @@ function _U.handler(self, ctx)
             end
         end
 
-        not_implemented(ctx, tag, op_id)
+        if tag or op_id then
+            not_implemented(ctx, tag, op_id)
+        else
+            self.error_handler(ctx, err)
+        end
+
         return ctx.res
     end
 
@@ -459,6 +464,14 @@ function _V.validate(ctx)
 
     if not req_path then
         return
+    end
+
+    if ctype then
+        local with_charset = ctype:match("(%w+/%w+);[%w+]")
+
+        if with_charset then
+            ctype = with_charset
+        end
     end
 
     local has, err = ctx.httpd.openapi:has_params(req_path, method, ctype)
@@ -595,6 +608,7 @@ function _V.object(val, spec, ctx)
     _V.runs = _V.runs + 1
     local required = spec.required or {}
     local obj = spec.properties
+
     local absent = fun.map(
         function(key, param)
             local k, v = next(param)
@@ -602,6 +616,7 @@ function _V.object(val, spec, ctx)
                 local reference = ctx.httpd.openapi:ref(v)
                 if reference then
                     param = reference
+                    required = reference.required or {}
                     obj[key] = param
                 end
             end
