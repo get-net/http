@@ -569,10 +569,11 @@ function _V.validate_query(ctx, spec, res)
         )
     else
         fun.chain(query, stash):reduce(
-            function(_res, key, value)
-                if not fun.any(function(val) return val.name == value end, spec) then
+            function(_res, key)
+                if not fun.any(function(val) return val.name == key end, spec) then
                     _res[key] = _V.p_error("unknown")
                 end
+                return _res
             end,
             res
         )
