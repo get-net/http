@@ -197,8 +197,8 @@ local function param(self, name)
         return self:post_param(name) or self:query_param(name)
     end
 
-    local post = self:post_param()
-    local query = self:query_param()
+    local post = table.deepcopy(self:post_param())
+    local query = table.deepcopy(self:query_param())
     return extend(post, query, false)
 end
 
