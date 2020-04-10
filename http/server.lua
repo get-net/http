@@ -78,7 +78,7 @@ local function extend(tbl, tblu, raise)
             rawset(res, k, v)
             return res
         end,
-        tbl,
+        table.deepcopy(tbl),
         tblu
     )
 end
